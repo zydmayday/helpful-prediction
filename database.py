@@ -54,9 +54,24 @@ class AmazonDB:
 				pass
 		conn.commit()
 
-	def get_all(self):
+	def get_all(self, cols='*', gt=0):
 		conn = self.conn
-		sql = '''SELECT * FROM review;'''
+		if type(cols) == list:
+			cols = ','.join(cols) 
+		sql = '''SELECT %s FROM review;''' % cols
+		if gt:
+			sql = '''SELECT %s from review where productid in (select productid from review group by productid having count(id) >= %d);''' % (cols, gt)
+		cur = conn.execute(sql)
+		return cur
+
+	def get_content_helpful(self, cols="content, helpful", gt=0, lt=0):
+		conn = self.conn
+		if type(cols) == list:
+			cols = ','.join(cols) 
+		if gt:
+			sql = '''SELECT %s from review where helpful>= %d;''' % (cols, gt)
+		if lt:
+			sql = '''SELECT %s from review where helpful<= %d;''' % (cols, lt)
 		cur = conn.execute(sql)
 		return cur
 
@@ -83,9 +98,13 @@ class AmazonDB:
 		return self.conn.execute(sql)
 
 class AmamzonMongoDb:
-	def __init__(self):
+	def __init__(self, user='testuser_001', psword='testuser_001', dbname='db_001', url='mongodb://10.63.60.15:27017/'):
 		self.client = MongoClient()
-		self.db = client.amazon_db
+		self.db = client[dbname]
+		self.db.authenticate(uesr, psword)
+
+	def table(self, tbname='test'):
+		return self.db[tbname]
 
 
 if __name__ == '__main__':

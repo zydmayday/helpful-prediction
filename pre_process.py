@@ -8,58 +8,101 @@ from database import AmazonDB
 from corpus import Corpus
 import nltk
 import pickle
+from nltk.tokenize import RegexpTokenizer
+import utils
+import time
+from multi_process import feature_multi_process, filter_multi_process
 
 class Preprocess:
-	def __init__(self, database=AmazonDB(), corpus=Corpus()):
-		self.db = database
-		self.corp = corpus
-
-	def get_product_helpful_dict(self):
+	def tokenize(self, corpus, tokenizer=RegexpTokenizer('\w+'), pre_filter=True):
 		'''
-		add productid is key, sum of helpful belong to productid as value
+		determine how to tokenize the corpus
 		'''
-		result = self.db.get_helpful_group_by_product()
-		ph_dict = {}
-		for r in result:
-			ph_dict[r[0]] = r[1]
-		return ph_dict
+		tokens = tokenizer.tokenize(corpus)
+		if pre_filter:
+			tokens = self.remove_digit(self.remove_by_length(self.remove_stopwords(self.remove_punctuation(tokens))))
+		return tokens
 
-	def save_X_Y(self, target_save_data=[], target_save_sql=""):
+	def word_features(self, documents, size=4000, method='DF', threshhold=0.001, use_multi=True):
 		'''
+		determine the features of train data
+		rtype: (list[{str: int}], int)
 		'''
-		ph_dict = self.get_product_helpful_dict()
-		reviews = self.db.execute('''SELECT CONTENT,HELPFUL,PRODUCTID FROM REVIEW''')
-		# fdist = nltk.FreqDist(self.corp.get_corpus('reviews.corp'))
-		fdist = pickle.load(open('/home/data/amazon/reviews_fdist.pkl', 'rb'))
-		for x, y, pid in reviews:
-			X = self._get_features(fdist, nltk.word_tokenize(x))
-			sum_pid = ph_dict.get(pid, 0)
-			if sum_pid:
-				Y = float(y) / sum_pid
-			else:
-				Y = 0
-			sql = '''INSERT INTO DATASET_1 (X,Y) VALUES ("%s",%.2f);''' % (X, Y)
-			print sql
-			self.db.save(sql)
+		methods = {'DF': utils.document_frequency, 'IG': utils.information_gain, 'MI': utils.mutual_information, 'CHI': utils.chi}
+		words = set()
+		for ctn, cls in documents:
+			for w in ctn:
+				words.add(w)
+		print('------ we have %d unique words ------' % len(words))
+		fdist = {}
+		if use_multi:
+			fdist = feature_multi_process(documents, words, methods[method])
+		else:
+			for w in words:
+				fdist[w] = methods[method](documents, w)
+		wf = sorted(fdist.items(), key=lambda i:i[1], reverse=True)
+		if size == -1:
+			return wf, len(words)
+		else:
+			return wf[:size], len(words)
 
-	def _get_features(self, fdist, tokens):
-		return [fdist.get(t, 0) for t in tokens]
+	def document_features(self, document, word_features):
+		'''
+		determine every document's feature vector
+		'''
+		document_words = set(document)
+		features = [0] * len(word_features)
+		for idx, wf in enumerate(word_features):
+			if wf[0] in document_words:
+				features[idx] = 1
+		return features
 
-	def get_percent_helpful(self):
-		ph_dict = self.get_product_helpful_dict()
-		helpful_list = self.db.get_all_helpful()
-		percent_hlist = []
-		for h, pid in helpful_list:
-			psum = ph_dict.get(pid, 0)
-			if psum:
-				percent_hlist.append(float(h) / psum)
-			else:
-				percent_hlist.append(0.0)
-		return percent_hlist
+	def class_features(self, c, threshhold=45):
+		'''
+		determine the threshhold of class label
+		for binary classification, g means good, b means bad
+		'''
+		if c < threshhold:
+			return 0
+		else:
+			return 1
+
+	def remove_stopwords(self, words):
+		stopwords = nltk.corpus.stopwords.words('english')
+		content = [w for w in words if w.lower() not in stopwords]
+		return content
+
+	def remove_punctuation(self, words):
+		from string import punctuation
+		content = [w for w in words if w.lower() not in punctuation]
+		return content
+
+	def remove_by_length(self, words, length=range(2,11)):
+		content = [w for w in words if len(w) in length]
+		return content		
+
+	def remove_digit(self, words):
+		content = [w for w in words if not w.isdigit()]
+		return content
+
+	def filter(self, documents, wfk, use_multi=True):
+		'''
+		get word in document where it is in word_features
+		return string type
+		'''
+		# wfk = [k[0] for k in word_features]
+		if use_multi:
+			return filter_multi_process(documents, wfk)
+
 
 if __name__ == '__main__':
-	adb = AmazonDB()
-	corp = Corpus()
-	review = Preprocess(adb, corp)
-	# ph_dict = review.get_product_helpful_dict()
-	review.save_X_Y()
+	for m in ['DF','IG', 'MI', 'CHI']:
+		start_time = time.time()
+		db = AmazonDB()
+		pp = Preprocess()
+		reviews = [(r,h) for r,h in db.get_all(cols=['content', 'helpful'], gt=10)][:100]
+		documents = [(pp.tokenize(ctn), pp.class_features(helpful)) for ctn, helpful in reviews]
+		# word_features1 = pp.word_features(documents, method='DF')
+		word_features = pp.word_features(documents, method=m)[:20]
+		print(word_features)
+	# word_features3 = pp.word_features(documents, method='MI')

@@ -12,9 +12,11 @@ import pickle
 
 class Corpus:
 
-	def __init__(self, corpus_root='/home/data/amazon/', dbpath='amazon.db'):
-		self.wordlists = PlaintextCorpusReader(corpus_root, '.*.corp')
-		self.db = AmazonDB(dbpath)
+	def __init__(self, corpus_root='', dbpath=''):
+		if corpus_root:
+			self.wordlists = PlaintextCorpusReader(corpus_root, '.*.corp')
+		if dbpath:
+			self.db = AmazonDB(dbpath)
 
 	def get_corpus(self, name='reviews.corp'):
 		return self.wordlists.words(name)
@@ -34,21 +36,12 @@ class Corpus:
 		fw = open('/home/data/amazon/reviews_rating5.corp', 'w')
 		fw.write(corpus_rating5)
 		fw.close()
+
 	def get_X(self):
 		'''
 		get the input 
 		'''
 
-
-	def _remove_stopwords(self, words):
-		stopwords = nltk.corpus.stopwords.words('english')
-		content = [w for w in words if w.lower() not in stopwords]
-		return content
-
-	def _remove_punctuation(self, words):
-		from string import punctuation
-		content = [w for w in words if w.lower() not in punctuation]
-		return content
 
 	def _save_fdist(self, name='reviews.corp', save_path='/home/data/amazon/reviews_fdist.pkl'):
 		words = self.get_corpus(name)
